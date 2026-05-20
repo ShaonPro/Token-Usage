@@ -1,0 +1,33 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local Claude Code metadata (dev-only — never commit)
+.claude/
+
+# Local environment
+.env
+.env.local
+*.log
+
+# Build / cache (none expected, but be safe)
+dist/
+build/
+.cache/
+
+# Generated demo data (regenerate with `node scripts/seed-demo.js`)
+demo-usage.db
