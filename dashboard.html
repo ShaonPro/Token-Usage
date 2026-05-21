@@ -198,7 +198,13 @@ main { padding:clamp(16px,3vw,30px) clamp(16px,3.5vw,40px) 20px; max-width:1480p
 /* ============================ KPI ============================ */
 .kpi-grid { display:grid; gap:14px; margin-top:16px; position:relative;
   grid-template-columns:repeat(4,1fr); }
-.kpi-grid:hover > .card-share { opacity:1; }
+/* The KPI grid's share button sits ABOVE the grid (top:-30px) so it
+   doesn't clash with each KPI tile's own share button in the top-right
+   corner. Keep it persistently visible at low opacity so users can find
+   it without hovering. */
+#kpis > .card-share { top:-30px; right:0; opacity:.55; }
+#kpis:hover > .card-share,
+#kpis > .card-share:hover { opacity:1; }
 @media (max-width:1000px){ .kpi-grid { grid-template-columns:repeat(2,1fr); } }
 @media (max-width:560px){ .kpi-grid { grid-template-columns:1fr; } }
 .kpi {
@@ -1489,11 +1495,19 @@ function countUp(el,to,fmt){
   const from=parseFloat(el.dataset.v)||0;
   el.dataset.v=to;
   const dur=720,t0=performance.now();
+  // Show the final value immediately as a baseline. The RAF loop will
+  // overlay the easing animation on top — but if RAF stalls (background
+  // tab, throttled headless render, html2canvas clone snapshot, etc.)
+  // the element still shows the real number instead of "0".
+  el.textContent=fmt(to);
   (function tick(now){
     const p=Math.min(1,(now-t0)/dur), e=1-Math.pow(1-p,3);
     el.textContent=fmt(from+(to-from)*e);
     if(p<1) requestAnimationFrame(tick);
+    else el.textContent=fmt(to); // belt-and-braces final snap
   })(t0);
+  // Final fallback: a setTimeout that fires regardless of RAF state.
+  setTimeout(()=>{ el.textContent=fmt(to); el.dataset.v=to; }, dur+80);
 }
 
 /* ============================ LIVE SESSION ============================ */
