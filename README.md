@@ -238,6 +238,4 @@ MIT — see [LICENSE](LICENSE).
 
 ✦ &nbsp; Customized by **[ShaonPro](https://github.com/ShaonPro)** &nbsp; ✦
 
-<sub>Type `p-r-o` anywhere on the dashboard for a little easter-egg.</sub>
-
 </div>

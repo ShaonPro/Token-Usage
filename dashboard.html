@@ -2841,19 +2841,198 @@ async function renderCardToPNG(el, opts){
   }
   const bg = CAPTURE_BGS.find(b=>b.id===opts.bgId) || CAPTURE_BGS[0];
   // 1. html2canvas the card (no foreignObject ⇒ untainted)
-  // html2canvas 1.4.1 doesn't understand modern color() / color-mix() syntax,
-  // so before it renders we walk the clone and rewrite any computed
-  // color(srgb r g b [/ a]) values to plain rgb()/rgba().
-  const COLOR_FN_RE = /color\(\s*srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\s*\)/g;
-  function rgbify(str){
-    if(!str || str.indexOf("color(") < 0) return str;
-    return str.replace(COLOR_FN_RE, (_,r,g,b,a)=>{
-      const R=Math.round(parseFloat(r)*255);
-      const G=Math.round(parseFloat(g)*255);
-      const B=Math.round(parseFloat(b)*255);
-      return a!==undefined ? `rgba(${R},${G},${B},${a})` : `rgb(${R},${G},${B})`;
-    });
+  // html2canvas 1.4.1 doesn't understand modern color() / color-mix() / oklch()
+  // syntax. The card body comes out BLANK if any cloned stylesheet rule still
+  // contains one. So before rendering we resolve every modern color function
+  // — both in computed inline styles AND in the cloned stylesheets — into
+  // plain rgb()/rgba() the parser can swallow.
+
+  // --- helpers: parse CSS colors → {r,g,b,a} -------------------------------
+  // Build a live var() lookup table from :root computed styles so we can
+  // resolve var(--c1) without keeping a clone around.
+  const VAR_MAP = (() => {
+    const m = {};
+    const cs = getComputedStyle(document.documentElement);
+    for (let i = 0; i < cs.length; i++) {
+      const name = cs[i];
+      if (name.startsWith("--")) m[name] = cs.getPropertyValue(name).trim();
+    }
+    return m;
+  })();
+  function hexToRgba(hex) {
+    let h = hex.slice(1);
+    if (h.length === 3) h = h.split("").map(c => c + c).join("");
+    if (h.length === 4) h = h.split("").map(c => c + c).join("");
+    if (h.length === 6) h += "ff";
+    if (h.length !== 8) return null;
+    return {
+      r: parseInt(h.slice(0,2), 16),
+      g: parseInt(h.slice(2,4), 16),
+      b: parseInt(h.slice(4,6), 16),
+      a: parseInt(h.slice(6,8), 16) / 255,
+    };
   }
+  // Convert OKLab → sRGB (standard formula). Browsers love to serialise
+  // color-mix() results as oklab() even when you asked for "in srgb",
+  // and html2canvas 1.4.1 has no idea what to do with that.
+  function linearToSrgb(x) {
+    if (x <= 0) return 0;
+    if (x >= 1) return 255;
+    const v = x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1/2.4) - 0.055;
+    return Math.max(0, Math.min(255, Math.round(v * 255)));
+  }
+  function oklabToRgb(L, a, b, alpha) {
+    const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
+    const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
+    const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
+    const l = l_ * l_ * l_;
+    const m = m_ * m_ * m_;
+    const s = s_ * s_ * s_;
+    const R =  4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
+    const G = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
+    const B = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
+    return { r: linearToSrgb(R), g: linearToSrgb(G), b: linearToSrgb(B),
+             a: alpha == null ? 1 : alpha };
+  }
+  function oklchToRgb(L, C, H, alpha) {
+    const h = H * Math.PI / 180;
+    return oklabToRgb(L, C * Math.cos(h), C * Math.sin(h), alpha);
+  }
+  function resolveColor(s) {
+    if (!s) return null;
+    s = s.trim();
+    if (s === "transparent") return { r: 0, g: 0, b: 0, a: 0 };
+    if (s === "currentColor") return null;
+    // var(--name [, fallback])
+    if (s.startsWith("var(")) {
+      const m = s.match(/var\(\s*(--[^,\)]+)(?:\s*,\s*([\s\S]+))?\s*\)$/);
+      if (!m) return null;
+      const v = VAR_MAP[m[1].trim()] || (m[2] && m[2].trim());
+      return v ? resolveColor(v) : null;
+    }
+    if (s[0] === "#") return hexToRgba(s);
+    // rgb()/rgba() — allow both comma and slash separators
+    let m = s.match(/^rgba?\(\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*(?:[,\/]\s*([\d.]+%?))?\s*\)$/);
+    if (m) {
+      const a = m[4] == null ? 1 :
+        (m[4].endsWith("%") ? parseFloat(m[4]) / 100 : parseFloat(m[4]));
+      return { r: +m[1], g: +m[2], b: +m[3], a };
+    }
+    // color(srgb r g b [/ a]) — components are 0..1 floats
+    m = s.match(/^color\(\s*srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\s*\)$/);
+    if (m) {
+      return {
+        r: Math.round(parseFloat(m[1]) * 255),
+        g: Math.round(parseFloat(m[2]) * 255),
+        b: Math.round(parseFloat(m[3]) * 255),
+        a: m[4] == null ? 1 : parseFloat(m[4]),
+      };
+    }
+    // nested color-mix — recursively resolve
+    if (s.startsWith("color-mix(")) {
+      const out = rewriteColors(s);
+      if (out !== s) return resolveColor(out);
+    }
+    return null;
+  }
+  function rgbaStr(c) {
+    if (c.a >= 0.999) return `rgb(${c.r},${c.g},${c.b})`;
+    return `rgba(${c.r},${c.g},${c.b},${+c.a.toFixed(4)})`;
+  }
+  // --- the unified colour-rewriter -----------------------------------------
+  // Walks a CSS value string and replaces every modern color function with
+  // a plain rgb()/rgba() the html2canvas 1.4.1 parser can swallow:
+  //   color(srgb r g b [/ a])    → rgb/rgba (direct)
+  //   color-mix(in srgb, A X%, B) → blended rgba
+  //   oklab(L a b [/ alpha])     → rgb (proper conversion)
+  //   oklch(L C H [/ alpha])     → rgb (proper conversion)
+  //   color(<any other space>)   → soft grey fallback
+  function rewriteColors(str) {
+    if (!str) return str;
+    if (str.indexOf("color(") < 0 && str.indexOf("color-mix(") < 0
+        && str.indexOf("oklab(") < 0 && str.indexOf("oklch(") < 0
+        && str.indexOf("lab(") < 0 && str.indexOf("lch(") < 0) return str;
+
+    // color(srgb r g b [/ a])
+    str = str.replace(/color\(\s*srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\s*\)/g,
+      (_, r, g, b, a) => {
+        const R = Math.round(parseFloat(r) * 255);
+        const G = Math.round(parseFloat(g) * 255);
+        const B = Math.round(parseFloat(b) * 255);
+        return a != null ? `rgba(${R},${G},${B},${a})` : `rgb(${R},${G},${B})`;
+      });
+
+    // oklab(L a b [/ alpha]) — proper conversion to sRGB
+    str = str.replace(/oklab\(\s*([\d.-]+%?)\s+([\d.-]+%?)\s+([\d.-]+%?)(?:\s*\/\s*([\d.]+%?))?\s*\)/g,
+      (_, L, a, b, alpha) => {
+        const lv = L.endsWith("%") ? parseFloat(L) / 100 : parseFloat(L);
+        const av = a.endsWith("%") ? parseFloat(a) / 100 * 0.4 : parseFloat(a);
+        const bv = b.endsWith("%") ? parseFloat(b) / 100 * 0.4 : parseFloat(b);
+        const al = alpha == null ? 1 :
+          (alpha.endsWith("%") ? parseFloat(alpha) / 100 : parseFloat(alpha));
+        const c = oklabToRgb(lv, av, bv, al);
+        return al >= 0.999
+          ? `rgb(${c.r},${c.g},${c.b})`
+          : `rgba(${c.r},${c.g},${c.b},${(+al.toFixed(4))})`;
+      });
+
+    // oklch(L C H [/ alpha]) — proper conversion to sRGB via oklab
+    str = str.replace(/oklch\(\s*([\d.-]+%?)\s+([\d.-]+%?)\s+([\d.-]+)(?:deg)?(?:\s*\/\s*([\d.]+%?))?\s*\)/g,
+      (_, L, C, H, alpha) => {
+        const lv = L.endsWith("%") ? parseFloat(L) / 100 : parseFloat(L);
+        const cv = C.endsWith("%") ? parseFloat(C) / 100 * 0.4 : parseFloat(C);
+        const hv = parseFloat(H);
+        const al = alpha == null ? 1 :
+          (alpha.endsWith("%") ? parseFloat(alpha) / 100 : parseFloat(alpha));
+        const c = oklchToRgb(lv, cv, hv, al);
+        return al >= 0.999
+          ? `rgb(${c.r},${c.g},${c.b})`
+          : `rgba(${c.r},${c.g},${c.b},${(+al.toFixed(4))})`;
+      });
+
+    // lab() / lch() — approximate via oklab math (close enough as a fallback)
+    str = str.replace(/\blab\(\s*([\d.-]+%?)\s+([\d.-]+%?)\s+([\d.-]+%?)(?:\s*\/\s*([\d.]+%?))?\s*\)/g,
+      (m, L, a, b, alpha) => {
+        // Lab L is 0..100 — normalise to 0..1 for oklab approximation
+        const lv = (L.endsWith("%") ? parseFloat(L) : parseFloat(L)) / 100;
+        const av = parseFloat(a) / 125; // rough
+        const bv = parseFloat(b) / 125;
+        const al = alpha == null ? 1 :
+          (alpha.endsWith("%") ? parseFloat(alpha) / 100 : parseFloat(alpha));
+        const c = oklabToRgb(lv, av, bv, al);
+        return al >= 0.999
+          ? `rgb(${c.r},${c.g},${c.b})`
+          : `rgba(${c.r},${c.g},${c.b},${(+al.toFixed(4))})`;
+      });
+
+    // color(<rec2020|p3|prophoto-rgb|xyz|…> ...) — unknown space, grey fallback
+    str = str.replace(/color\(\s*(?!srgb\b)[a-z0-9-]+[^()]*\)/g, "rgb(128,128,128)");
+
+    // color-mix(in srgb, A X%, B) — replace innermost first so nested cases
+    // resolve correctly. We loop until no more occurrences are found.
+    let prev;
+    do {
+      prev = str;
+      str = str.replace(
+        /color-mix\(\s*in\s+srgb\s*,\s*([^,()]*(?:\([^()]*\)[^,()]*)*)\s+([\d.]+)%\s*,\s*([^()]*(?:\([^()]*\)[^()]*)*)\s*\)/g,
+        (m, aText, pctStr, bText) => {
+          const pct = parseFloat(pctStr) / 100;
+          const A = resolveColor(aText.trim());
+          const B = resolveColor(bText.trim());
+          if (!A || !B) return m;
+          const R = Math.round(pct * A.r + (1 - pct) * B.r);
+          const G = Math.round(pct * A.g + (1 - pct) * B.g);
+          const Bv = Math.round(pct * A.b + (1 - pct) * B.b);
+          const Aa = pct * A.a + (1 - pct) * B.a;
+          return Aa >= 0.999
+            ? `rgb(${R},${G},${Bv})`
+            : `rgba(${R},${G},${Bv},${(+Aa.toFixed(4))})`;
+        });
+    } while (str !== prev);
+
+    return str;
+  }
+
   const COLOR_PROPS = ["color","background-color","border-top-color","border-right-color",
     "border-bottom-color","border-left-color","outline-color","caret-color","fill","stroke",
     "text-decoration-color","column-rule-color","accent-color"];
@@ -2868,6 +3047,63 @@ async function renderCardToPNG(el, opts){
                                        || n.classList.contains("cap-toast")
                                        || n.classList.contains("pro-egg")),
     onclone: (doc, clonedEl)=>{
+      // (0) NEUTRALISE animations. Cards have `class="card reveal"` with a
+      //     @keyframes reveal animation that fades from opacity:0 to 1 over
+      //     0.5s. The cloned element is offscreen so the animation never
+      //     runs — and with `animation-fill-mode: both` the element STAYS
+      //     at the `from` state (opacity:0), producing a blank capture.
+      //     Force-disable animations on every cloned node.
+      const animKill = doc.createElement("style");
+      animKill.textContent =
+        "*, *::before, *::after { animation: none !important; " +
+        "transition: none !important; opacity: 1 !important; " +
+        "transform: none !important; }";
+      doc.head.appendChild(animKill);
+
+      // (a) Rewrite EVERY stylesheet rule in the cloned document. Browsers
+      //     keep `background: color-mix(...)` declared on the shorthand —
+      //     property-by-property enumeration of `rule.style` misses it
+      //     because the longhand `background-color` reads as empty. So we
+      //     rewrite `rule.cssText` wholesale: take the rule's text, run
+      //     rewriteColors() over it, then replace the rule in the sheet
+      //     via deleteRule + insertRule. That guarantees every token of
+      //     color()/color-mix()/oklch() is flat rgba() before html2canvas
+      //     parses anything.
+      for (const sheet of doc.styleSheets) {
+        let rules;
+        try { rules = sheet.cssRules; } catch (_) { continue; }
+        if (!rules) continue;
+        // iterate backwards so deleteRule/insertRule indices stay stable
+        for (let i = rules.length - 1; i >= 0; i--) {
+          const rule = rules[i];
+          const txt = rule && rule.cssText;
+          if (!txt) continue;
+          if (txt.indexOf("color(") < 0 && txt.indexOf("color-mix(") < 0
+              && txt.indexOf("oklab(") < 0 && txt.indexOf("oklch(") < 0
+              && txt.indexOf("lab(") < 0 && txt.indexOf("lch(") < 0) continue;
+          const next = rewriteColors(txt);
+          // If we can't rewrite (e.g. nested var() fallback inside color-mix),
+          // DELETE the rule entirely — leaving it in would make html2canvas
+          // silently bail and emit a blank canvas. Better to lose a decorative
+          // rule than the whole card body.
+          if (next === txt || next.indexOf("color(") >= 0
+              || next.indexOf("color-mix(") >= 0
+              || next.indexOf("oklab(") >= 0
+              || next.indexOf("oklch(") >= 0) {
+            try { sheet.deleteRule(i); } catch (_) {}
+            continue;
+          }
+          try {
+            sheet.deleteRule(i);
+            sheet.insertRule(next, i);
+          } catch (_) {
+            try { sheet.deleteRule(i); } catch (_) {}
+          }
+        }
+      }
+      // (b) Belt-and-braces: also flatten computed colours onto inline
+      //     styles for every element. Inline styles win over any rule
+      //     html2canvas might still mis-parse.
       const win = doc.defaultView || window;
       const allNodes = [clonedEl, ...clonedEl.querySelectorAll("*")];
       for (const n of allNodes) {
@@ -2875,16 +3111,20 @@ async function renderCardToPNG(el, opts){
         try { cs = win.getComputedStyle(n); } catch(_) { continue; }
         for (const p of COLOR_PROPS) {
           const v = cs.getPropertyValue(p);
-          if (v && v.indexOf("color(") >= 0) n.style.setProperty(p, rgbify(v));
+          if (v && (v.indexOf("color(") >= 0 || v.indexOf("color-mix(") >= 0))
+            n.style.setProperty(p, rewriteColors(v));
         }
         for (const p of IMG_PROPS) {
           const v = cs.getPropertyValue(p);
-          if (v && v.indexOf("color(") >= 0) n.style.setProperty(p, rgbify(v));
+          if (v && (v.indexOf("color(") >= 0 || v.indexOf("color-mix(") >= 0))
+            n.style.setProperty(p, rewriteColors(v));
         }
         const bs = cs.getPropertyValue("box-shadow");
-        if (bs && bs.indexOf("color(") >= 0) n.style.setProperty("box-shadow", rgbify(bs));
-        const bg = cs.getPropertyValue("background");
-        if (bg && bg.indexOf("color(") >= 0) n.style.setProperty("background", rgbify(bg));
+        if (bs && (bs.indexOf("color(") >= 0 || bs.indexOf("color-mix(") >= 0))
+          n.style.setProperty("box-shadow", rewriteColors(bs));
+        const bgv = cs.getPropertyValue("background");
+        if (bgv && (bgv.indexOf("color(") >= 0 || bgv.indexOf("color-mix(") >= 0))
+          n.style.setProperty("background", rewriteColors(bgv));
       }
     },
   });
