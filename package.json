@@ -37,7 +37,6 @@
     "stats.js",
     "cli.js",
     "dashboard.html",
-    "html2canvas.min.js",
     "claude-usage.command",
     "claude-usage.bat",
     "claude-usage.sh",

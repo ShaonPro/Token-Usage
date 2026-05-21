@@ -21,7 +21,6 @@ const { buildStats, buildSessionDetail, DB_PATH } = require('../stats');
 const PORT = parseInt(process.env.PORT, 10);
 const HOST = '127.0.0.1';
 const HTML_FILE = path.join(__dirname, '..', 'dashboard.html');
-const H2C_FILE = path.join(__dirname, '..', 'html2canvas.min.js');
 
 function send(res, code, type, body, extra) {
   res.writeHead(code, Object.assign({ 'Content-Type': type }, extra || {}));
@@ -118,15 +117,9 @@ const server = http.createServer((req, res) => {
     if (u.pathname === '/api/health') {
       return send(res, 200, 'application/json', JSON.stringify({ ok: true, db: DB_PATH, demo: true }));
     }
-    if (u.pathname === '/html2canvas.min.js') {
-      if (!fs.existsSync(H2C_FILE)) return send(res, 404, 'text/plain', 'Not found');
-      return send(res, 200, 'application/javascript; charset=utf-8', fs.readFileSync(H2C_FILE), {
-        'Cache-Control': 'public, max-age=86400, immutable',
-      });
-    }
     if (u.pathname === '/favicon.ico') return send(res, 204, 'text/plain', '');
     if (u.pathname === '/__upload' && req.method === 'POST') {
-      // demo-only endpoint to save html2canvas captures to disk
+      // demo-only endpoint to save capture blobs to disk
       const chunks = [];
       req.on('data', (c) => chunks.push(c));
       req.on('end', () => {

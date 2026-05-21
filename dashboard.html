@@ -849,7 +849,7 @@ html[data-theme="light"] .cef-num { background:linear-gradient(135deg,#5fc7b8 0%
 .pro-egg .pro-sub a { color:var(--accent); text-decoration:none; font-weight:600; }
 .pro-egg .pro-sub a:hover { text-decoration:underline; }
 
-/* ===== Card share buttons (per-card capture-to-PNG) ===== */
+/* ===== Card share buttons (per-card capture-to-SVG) ===== */
 .card-share { position:absolute; top:8px; right:8px; z-index:5;
   width:26px; height:26px; border-radius:7px;
   background:var(--surface); border:1px solid var(--border);
@@ -893,16 +893,6 @@ html[data-theme="light"] .cef-num { background:linear-gradient(135deg,#5fc7b8 0%
 .cap-pop-section { display:flex; flex-direction:column; gap:7px; }
 .cap-pop-label { font-size:10px; font-weight:650; letter-spacing:.07em;
   text-transform:uppercase; color:var(--text-faint); }
-.cap-pop-formats { display:flex; gap:6px; }
-.cap-pop-formats button { flex:1; background:var(--surface-2);
-  border:1px solid var(--border); border-radius:8px;
-  padding:8px 10px; font-size:12px; font-weight:550;
-  color:var(--text-mute); cursor:pointer; transition:.12s;
-  font-family:inherit; display:flex; align-items:center; justify-content:center; gap:5px; }
-.cap-pop-formats button:hover { color:var(--text); border-color:var(--border-strong); }
-.cap-pop-formats button.on { background:var(--accent-soft); color:var(--accent);
-  border-color:transparent; }
-.cap-pop-formats button .hint { font-size:9.5px; font-weight:500; opacity:.6; }
 .cap-pop-bgs { display:grid; grid-template-columns:repeat(6,1fr); gap:7px; }
 .cap-pop-bg { width:100%; aspect-ratio:1; border-radius:8px;
   border:2px solid transparent; cursor:pointer; transition:transform .12s, border-color .12s;
@@ -966,7 +956,7 @@ html[data-theme="light"] .cef-num { background:linear-gradient(135deg,#5fc7b8 0%
         <button data-x="daily"><svg viewBox="0 0 24 24" fill="none"><path d="M4 19V5m5 14V9m5 10V3m5 16v-8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Daily activity (CSV)</button>
       </div>
     </div>
-    <button id="btn-share-all" class="iconbtn" title="Capture the dashboard as a shareable PNG">
+    <button id="btn-share-all" class="iconbtn" title="Capture the dashboard as a shareable SVG">
       <svg viewBox="0 0 24 24" fill="none"><path d="M3 9V7a2 2 0 012-2h2l1.5-2h7L17 5h2a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2v-2"
         stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
         <circle cx="12" cy="13" r="3.5" stroke="currentColor" stroke-width="2"/></svg>
@@ -1131,8 +1121,6 @@ html[data-theme="light"] .cef-num { background:linear-gradient(135deg,#5fc7b8 0%
 <div id="tip"></div>
 <div id="loader"><div class="spinner"></div></div>
 
-<!-- Vendored html2canvas for reliable PNG export (no foreignObject taint) -->
-<script src="/html2canvas.min.js"></script>
 
 <div id="sess-modal" hidden>
   <div class="modal-bg" id="sm-bg"></div>
@@ -1497,8 +1485,8 @@ function countUp(el,to,fmt){
   const dur=720,t0=performance.now();
   // Show the final value immediately as a baseline. The RAF loop will
   // overlay the easing animation on top — but if RAF stalls (background
-  // tab, throttled headless render, html2canvas clone snapshot, etc.)
-  // the element still shows the real number instead of "0".
+  // tab, throttled headless render, mid-clone snapshot, etc.) the
+  // element still shows the real number instead of "0".
   el.textContent=fmt(to);
   (function tick(now){
     const p=Math.min(1,(now-t0)/dur), e=1-Math.pow(1-p,3);
@@ -2704,10 +2692,11 @@ document.addEventListener("keydown",e=>{
 });
 
 /* ============================================================================
- * ✦ ShareSnap — capture any card to a shareable image with a Mac-style
+ * ✦ ShareSnap — capture any card to a shareable SVG with a Mac-style
  *   browser frame, gradient background, and a low-key ShaonPro watermark.
- *   PNG via vendored html2canvas (reliable in all browsers).
- *   SVG path also offered for vector output.
+ *   SVG keeps modern CSS (color-mix, oklab, color-srgb) intact and
+ *   renders pixel-perfect in any browser, Preview, Figma, etc.
+ *   Open the .svg in Preview / Photoshop / Figma to export to PNG.
  * ==========================================================================*/
 
 const CAPTURE_BGS = [
@@ -2749,7 +2738,7 @@ const CAPTURE_BGS = [
     wmSub:'#666666', wmAlpha:0.65, shadow:'rgba(0,0,0,0.75)' },
 ];
 
-let CAP_BG_ID='warm-dark', CAP_FORMAT='png', CAP_TARGET=null, CAP_TITLE='card';
+let CAP_BG_ID='warm-dark', CAP_TARGET=null, CAP_TITLE='card';
 
 function ensureCapturePopover(){
   let pop=document.querySelector(".cap-pop");
@@ -2757,13 +2746,6 @@ function ensureCapturePopover(){
   pop=document.createElement("div");
   pop.className="cap-pop";
   pop.innerHTML=`
-    <div class="cap-pop-section">
-      <div class="cap-pop-label">Format</div>
-      <div class="cap-pop-formats">
-        <button data-fmt="png">PNG <span class="hint">· wide support</span></button>
-        <button data-fmt="svg">SVG <span class="hint">· vector</span></button>
-      </div>
-    </div>
     <div class="cap-pop-section">
       <div class="cap-pop-label">Background</div>
       <div class="cap-pop-bgs">
@@ -2773,16 +2755,10 @@ function ensureCapturePopover(){
     <button class="cap-pop-go">
       <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0l-4-4m4 4l4-4M5 17v2a2 2 0 002 2h10a2 2 0 002-2v-2"
         stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-      Capture &amp; download
+      Download SVG
     </button>
   `;
   document.body.appendChild(pop);
-  pop.querySelectorAll(".cap-pop-formats button").forEach(b=>{
-    b.onclick=()=>{
-      CAP_FORMAT=b.dataset.fmt;
-      pop.querySelectorAll(".cap-pop-formats button").forEach(x=>x.classList.toggle("on",x===b));
-    };
-  });
   pop.querySelectorAll(".cap-pop-bg").forEach(b=>{
     b.onclick=()=>{
       CAP_BG_ID=b.dataset.bg;
@@ -2792,7 +2768,7 @@ function ensureCapturePopover(){
   pop.querySelector(".cap-pop-go").onclick=async()=>{
     if(!CAP_TARGET) return;
     pop.classList.remove("show");
-    await captureElement(CAP_TARGET, { title:CAP_TITLE, bgId:CAP_BG_ID, format:CAP_FORMAT });
+    await captureElement(CAP_TARGET, { title:CAP_TITLE, bgId:CAP_BG_ID });
     CAP_TARGET=null;
   };
   document.addEventListener("click",(e)=>{
@@ -2812,7 +2788,6 @@ function ensureCapturePopover(){
 function openCapturePopover(el, anchorBtn, title){
   CAP_TARGET=el; CAP_TITLE=title||"card";
   const pop=ensureCapturePopover();
-  pop.querySelectorAll(".cap-pop-formats button").forEach(b=>b.classList.toggle("on",b.dataset.fmt===CAP_FORMAT));
   pop.querySelectorAll(".cap-pop-bg").forEach(b=>b.classList.toggle("on",b.dataset.bg===CAP_BG_ID));
   pop.classList.add("show");
   // position near the anchor button
@@ -2833,399 +2808,16 @@ function openCapturePopover(el, anchorBtn, title){
 
 /* --- rendering paths --- */
 
-function drawRoundedRect(ctx, x, y, w, h, r){
-  const a=Array.isArray(r)?r:[r,r,r,r];
-  const [tl,tr,br,bl]=a;
-  ctx.beginPath();
-  ctx.moveTo(x+tl, y);
-  ctx.lineTo(x+w-tr, y);
-  ctx.quadraticCurveTo(x+w, y, x+w, y+tr);
-  ctx.lineTo(x+w, y+h-br);
-  ctx.quadraticCurveTo(x+w, y+h, x+w-br, y+h);
-  ctx.lineTo(x+bl, y+h);
-  ctx.quadraticCurveTo(x, y+h, x, y+h-bl);
-  ctx.lineTo(x, y+tl);
-  ctx.quadraticCurveTo(x, y, x+tl, y);
-  ctx.closePath();
-}
-
-async function renderCardToPNG(el, opts){
-  if(typeof html2canvas==="undefined"){
-    throw new Error("html2canvas not loaded — falling back to SVG");
-  }
-  const bg = CAPTURE_BGS.find(b=>b.id===opts.bgId) || CAPTURE_BGS[0];
-  // 1. html2canvas the card (no foreignObject ⇒ untainted)
-  // html2canvas 1.4.1 doesn't understand modern color() / color-mix() / oklch()
-  // syntax. The card body comes out BLANK if any cloned stylesheet rule still
-  // contains one. So before rendering we resolve every modern color function
-  // — both in computed inline styles AND in the cloned stylesheets — into
-  // plain rgb()/rgba() the parser can swallow.
-
-  // --- helpers: parse CSS colors → {r,g,b,a} -------------------------------
-  // Build a live var() lookup table from :root computed styles so we can
-  // resolve var(--c1) without keeping a clone around.
-  const VAR_MAP = (() => {
-    const m = {};
-    const cs = getComputedStyle(document.documentElement);
-    for (let i = 0; i < cs.length; i++) {
-      const name = cs[i];
-      if (name.startsWith("--")) m[name] = cs.getPropertyValue(name).trim();
-    }
-    return m;
-  })();
-  function hexToRgba(hex) {
-    let h = hex.slice(1);
-    if (h.length === 3) h = h.split("").map(c => c + c).join("");
-    if (h.length === 4) h = h.split("").map(c => c + c).join("");
-    if (h.length === 6) h += "ff";
-    if (h.length !== 8) return null;
-    return {
-      r: parseInt(h.slice(0,2), 16),
-      g: parseInt(h.slice(2,4), 16),
-      b: parseInt(h.slice(4,6), 16),
-      a: parseInt(h.slice(6,8), 16) / 255,
-    };
-  }
-  // Convert OKLab → sRGB (standard formula). Browsers love to serialise
-  // color-mix() results as oklab() even when you asked for "in srgb",
-  // and html2canvas 1.4.1 has no idea what to do with that.
-  function linearToSrgb(x) {
-    if (x <= 0) return 0;
-    if (x >= 1) return 255;
-    const v = x <= 0.0031308 ? 12.92 * x : 1.055 * Math.pow(x, 1/2.4) - 0.055;
-    return Math.max(0, Math.min(255, Math.round(v * 255)));
-  }
-  function oklabToRgb(L, a, b, alpha) {
-    const l_ = L + 0.3963377774 * a + 0.2158037573 * b;
-    const m_ = L - 0.1055613458 * a - 0.0638541728 * b;
-    const s_ = L - 0.0894841775 * a - 1.2914855480 * b;
-    const l = l_ * l_ * l_;
-    const m = m_ * m_ * m_;
-    const s = s_ * s_ * s_;
-    const R =  4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s;
-    const G = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s;
-    const B = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s;
-    return { r: linearToSrgb(R), g: linearToSrgb(G), b: linearToSrgb(B),
-             a: alpha == null ? 1 : alpha };
-  }
-  function oklchToRgb(L, C, H, alpha) {
-    const h = H * Math.PI / 180;
-    return oklabToRgb(L, C * Math.cos(h), C * Math.sin(h), alpha);
-  }
-  function resolveColor(s) {
-    if (!s) return null;
-    s = s.trim();
-    if (s === "transparent") return { r: 0, g: 0, b: 0, a: 0 };
-    if (s === "currentColor") return null;
-    // var(--name [, fallback])
-    if (s.startsWith("var(")) {
-      const m = s.match(/var\(\s*(--[^,\)]+)(?:\s*,\s*([\s\S]+))?\s*\)$/);
-      if (!m) return null;
-      const v = VAR_MAP[m[1].trim()] || (m[2] && m[2].trim());
-      return v ? resolveColor(v) : null;
-    }
-    if (s[0] === "#") return hexToRgba(s);
-    // rgb()/rgba() — allow both comma and slash separators
-    let m = s.match(/^rgba?\(\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*[, ]\s*([\d.]+)\s*(?:[,\/]\s*([\d.]+%?))?\s*\)$/);
-    if (m) {
-      const a = m[4] == null ? 1 :
-        (m[4].endsWith("%") ? parseFloat(m[4]) / 100 : parseFloat(m[4]));
-      return { r: +m[1], g: +m[2], b: +m[3], a };
-    }
-    // color(srgb r g b [/ a]) — components are 0..1 floats
-    m = s.match(/^color\(\s*srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\s*\)$/);
-    if (m) {
-      return {
-        r: Math.round(parseFloat(m[1]) * 255),
-        g: Math.round(parseFloat(m[2]) * 255),
-        b: Math.round(parseFloat(m[3]) * 255),
-        a: m[4] == null ? 1 : parseFloat(m[4]),
-      };
-    }
-    // nested color-mix — recursively resolve
-    if (s.startsWith("color-mix(")) {
-      const out = rewriteColors(s);
-      if (out !== s) return resolveColor(out);
-    }
-    return null;
-  }
-  function rgbaStr(c) {
-    if (c.a >= 0.999) return `rgb(${c.r},${c.g},${c.b})`;
-    return `rgba(${c.r},${c.g},${c.b},${+c.a.toFixed(4)})`;
-  }
-  // --- the unified colour-rewriter -----------------------------------------
-  // Walks a CSS value string and replaces every modern color function with
-  // a plain rgb()/rgba() the html2canvas 1.4.1 parser can swallow:
-  //   color(srgb r g b [/ a])    → rgb/rgba (direct)
-  //   color-mix(in srgb, A X%, B) → blended rgba
-  //   oklab(L a b [/ alpha])     → rgb (proper conversion)
-  //   oklch(L C H [/ alpha])     → rgb (proper conversion)
-  //   color(<any other space>)   → soft grey fallback
-  function rewriteColors(str) {
-    if (!str) return str;
-    if (str.indexOf("color(") < 0 && str.indexOf("color-mix(") < 0
-        && str.indexOf("oklab(") < 0 && str.indexOf("oklch(") < 0
-        && str.indexOf("lab(") < 0 && str.indexOf("lch(") < 0) return str;
-
-    // color(srgb r g b [/ a])
-    str = str.replace(/color\(\s*srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?\s*\)/g,
-      (_, r, g, b, a) => {
-        const R = Math.round(parseFloat(r) * 255);
-        const G = Math.round(parseFloat(g) * 255);
-        const B = Math.round(parseFloat(b) * 255);
-        return a != null ? `rgba(${R},${G},${B},${a})` : `rgb(${R},${G},${B})`;
-      });
-
-    // oklab(L a b [/ alpha]) — proper conversion to sRGB
-    str = str.replace(/oklab\(\s*([\d.-]+%?)\s+([\d.-]+%?)\s+([\d.-]+%?)(?:\s*\/\s*([\d.]+%?))?\s*\)/g,
-      (_, L, a, b, alpha) => {
-        const lv = L.endsWith("%") ? parseFloat(L) / 100 : parseFloat(L);
-        const av = a.endsWith("%") ? parseFloat(a) / 100 * 0.4 : parseFloat(a);
-        const bv = b.endsWith("%") ? parseFloat(b) / 100 * 0.4 : parseFloat(b);
-        const al = alpha == null ? 1 :
-          (alpha.endsWith("%") ? parseFloat(alpha) / 100 : parseFloat(alpha));
-        const c = oklabToRgb(lv, av, bv, al);
-        return al >= 0.999
-          ? `rgb(${c.r},${c.g},${c.b})`
-          : `rgba(${c.r},${c.g},${c.b},${(+al.toFixed(4))})`;
-      });
-
-    // oklch(L C H [/ alpha]) — proper conversion to sRGB via oklab
-    str = str.replace(/oklch\(\s*([\d.-]+%?)\s+([\d.-]+%?)\s+([\d.-]+)(?:deg)?(?:\s*\/\s*([\d.]+%?))?\s*\)/g,
-      (_, L, C, H, alpha) => {
-        const lv = L.endsWith("%") ? parseFloat(L) / 100 : parseFloat(L);
-        const cv = C.endsWith("%") ? parseFloat(C) / 100 * 0.4 : parseFloat(C);
-        const hv = parseFloat(H);
-        const al = alpha == null ? 1 :
-          (alpha.endsWith("%") ? parseFloat(alpha) / 100 : parseFloat(alpha));
-        const c = oklchToRgb(lv, cv, hv, al);
-        return al >= 0.999
-          ? `rgb(${c.r},${c.g},${c.b})`
-          : `rgba(${c.r},${c.g},${c.b},${(+al.toFixed(4))})`;
-      });
-
-    // lab() / lch() — approximate via oklab math (close enough as a fallback)
-    str = str.replace(/\blab\(\s*([\d.-]+%?)\s+([\d.-]+%?)\s+([\d.-]+%?)(?:\s*\/\s*([\d.]+%?))?\s*\)/g,
-      (m, L, a, b, alpha) => {
-        // Lab L is 0..100 — normalise to 0..1 for oklab approximation
-        const lv = (L.endsWith("%") ? parseFloat(L) : parseFloat(L)) / 100;
-        const av = parseFloat(a) / 125; // rough
-        const bv = parseFloat(b) / 125;
-        const al = alpha == null ? 1 :
-          (alpha.endsWith("%") ? parseFloat(alpha) / 100 : parseFloat(alpha));
-        const c = oklabToRgb(lv, av, bv, al);
-        return al >= 0.999
-          ? `rgb(${c.r},${c.g},${c.b})`
-          : `rgba(${c.r},${c.g},${c.b},${(+al.toFixed(4))})`;
-      });
-
-    // color(<rec2020|p3|prophoto-rgb|xyz|…> ...) — unknown space, grey fallback
-    str = str.replace(/color\(\s*(?!srgb\b)[a-z0-9-]+[^()]*\)/g, "rgb(128,128,128)");
-
-    // color-mix(in srgb, A X%, B) — replace innermost first so nested cases
-    // resolve correctly. We loop until no more occurrences are found.
-    let prev;
-    do {
-      prev = str;
-      str = str.replace(
-        /color-mix\(\s*in\s+srgb\s*,\s*([^,()]*(?:\([^()]*\)[^,()]*)*)\s+([\d.]+)%\s*,\s*([^()]*(?:\([^()]*\)[^()]*)*)\s*\)/g,
-        (m, aText, pctStr, bText) => {
-          const pct = parseFloat(pctStr) / 100;
-          const A = resolveColor(aText.trim());
-          const B = resolveColor(bText.trim());
-          if (!A || !B) return m;
-          const R = Math.round(pct * A.r + (1 - pct) * B.r);
-          const G = Math.round(pct * A.g + (1 - pct) * B.g);
-          const Bv = Math.round(pct * A.b + (1 - pct) * B.b);
-          const Aa = pct * A.a + (1 - pct) * B.a;
-          return Aa >= 0.999
-            ? `rgb(${R},${G},${Bv})`
-            : `rgba(${R},${G},${Bv},${(+Aa.toFixed(4))})`;
-        });
-    } while (str !== prev);
-
-    return str;
-  }
-
-  const COLOR_PROPS = ["color","background-color","border-top-color","border-right-color",
-    "border-bottom-color","border-left-color","outline-color","caret-color","fill","stroke",
-    "text-decoration-color","column-rule-color","accent-color"];
-  const IMG_PROPS = ["background-image","border-image-source","mask-image"];
-  const inner = await html2canvas(el, {
-    backgroundColor: null,
-    scale: 2,
-    logging: false,
-    useCORS: true,
-    ignoreElements: (n)=> n.classList && (n.classList.contains("card-share")
-                                       || n.classList.contains("cap-pop")
-                                       || n.classList.contains("cap-toast")
-                                       || n.classList.contains("pro-egg")),
-    onclone: (doc, clonedEl)=>{
-      // (0) NEUTRALISE animations. Cards have `class="card reveal"` with a
-      //     @keyframes reveal animation that fades from opacity:0 to 1 over
-      //     0.5s. The cloned element is offscreen so the animation never
-      //     runs — and with `animation-fill-mode: both` the element STAYS
-      //     at the `from` state (opacity:0), producing a blank capture.
-      //     Force-disable animations on every cloned node.
-      const animKill = doc.createElement("style");
-      animKill.textContent =
-        "*, *::before, *::after { animation: none !important; " +
-        "transition: none !important; opacity: 1 !important; " +
-        "transform: none !important; }";
-      doc.head.appendChild(animKill);
-
-      // (a) Rewrite EVERY stylesheet rule in the cloned document. Browsers
-      //     keep `background: color-mix(...)` declared on the shorthand —
-      //     property-by-property enumeration of `rule.style` misses it
-      //     because the longhand `background-color` reads as empty. So we
-      //     rewrite `rule.cssText` wholesale: take the rule's text, run
-      //     rewriteColors() over it, then replace the rule in the sheet
-      //     via deleteRule + insertRule. That guarantees every token of
-      //     color()/color-mix()/oklch() is flat rgba() before html2canvas
-      //     parses anything.
-      for (const sheet of doc.styleSheets) {
-        let rules;
-        try { rules = sheet.cssRules; } catch (_) { continue; }
-        if (!rules) continue;
-        // iterate backwards so deleteRule/insertRule indices stay stable
-        for (let i = rules.length - 1; i >= 0; i--) {
-          const rule = rules[i];
-          const txt = rule && rule.cssText;
-          if (!txt) continue;
-          if (txt.indexOf("color(") < 0 && txt.indexOf("color-mix(") < 0
-              && txt.indexOf("oklab(") < 0 && txt.indexOf("oklch(") < 0
-              && txt.indexOf("lab(") < 0 && txt.indexOf("lch(") < 0) continue;
-          const next = rewriteColors(txt);
-          // If we can't rewrite (e.g. nested var() fallback inside color-mix),
-          // DELETE the rule entirely — leaving it in would make html2canvas
-          // silently bail and emit a blank canvas. Better to lose a decorative
-          // rule than the whole card body.
-          if (next === txt || next.indexOf("color(") >= 0
-              || next.indexOf("color-mix(") >= 0
-              || next.indexOf("oklab(") >= 0
-              || next.indexOf("oklch(") >= 0) {
-            try { sheet.deleteRule(i); } catch (_) {}
-            continue;
-          }
-          try {
-            sheet.deleteRule(i);
-            sheet.insertRule(next, i);
-          } catch (_) {
-            try { sheet.deleteRule(i); } catch (_) {}
-          }
-        }
-      }
-      // (b) Belt-and-braces: also flatten computed colours onto inline
-      //     styles for every element. Inline styles win over any rule
-      //     html2canvas might still mis-parse.
-      const win = doc.defaultView || window;
-      const allNodes = [clonedEl, ...clonedEl.querySelectorAll("*")];
-      for (const n of allNodes) {
-        let cs;
-        try { cs = win.getComputedStyle(n); } catch(_) { continue; }
-        for (const p of COLOR_PROPS) {
-          const v = cs.getPropertyValue(p);
-          if (v && (v.indexOf("color(") >= 0 || v.indexOf("color-mix(") >= 0))
-            n.style.setProperty(p, rewriteColors(v));
-        }
-        for (const p of IMG_PROPS) {
-          const v = cs.getPropertyValue(p);
-          if (v && (v.indexOf("color(") >= 0 || v.indexOf("color-mix(") >= 0))
-            n.style.setProperty(p, rewriteColors(v));
-        }
-        const bs = cs.getPropertyValue("box-shadow");
-        if (bs && (bs.indexOf("color(") >= 0 || bs.indexOf("color-mix(") >= 0))
-          n.style.setProperty("box-shadow", rewriteColors(bs));
-        const bgv = cs.getPropertyValue("background");
-        if (bgv && (bgv.indexOf("color(") >= 0 || bgv.indexOf("color-mix(") >= 0))
-          n.style.setProperty("background", rewriteColors(bgv));
-      }
-    },
-  });
-  const cardW = inner.width/2;
-  const cardH = inner.height/2;
-  // 2. composite with frame + watermark
-  const PAD=52, CHROME_H=40, WM_GAP=18, WM_H=52, RADIUS=14;
-  const totalW = cardW + PAD*2;
-  const totalH = PAD + CHROME_H + cardH + WM_GAP + WM_H + PAD/2;
-  const scale=2;
-  const canvas=document.createElement("canvas");
-  canvas.width=totalW*scale; canvas.height=totalH*scale;
-  const ctx=canvas.getContext("2d");
-  ctx.scale(scale,scale);
-  // bg gradient
-  const g=ctx.createLinearGradient(0,0,totalW,totalH);
-  g.addColorStop(0,bg.a); g.addColorStop(1,bg.b);
-  ctx.fillStyle=g; ctx.fillRect(0,0,totalW,totalH);
-  // browser frame with drop shadow
-  const fx=PAD, fy=PAD, fw=cardW, fh=CHROME_H+cardH;
-  ctx.save();
-  ctx.shadowColor=bg.shadow; ctx.shadowBlur=48; ctx.shadowOffsetY=22;
-  drawRoundedRect(ctx,fx,fy,fw,fh,RADIUS);
-  ctx.fillStyle=bg.frameBg; ctx.fill();
-  ctx.restore();
-  // traffic lights
-  const dotY = fy + CHROME_H/2;
-  [['#ff5f57',20],['#febc2e',38],['#28c840',56]].forEach(([c,dx])=>{
-    ctx.fillStyle=c;
-    ctx.beginPath(); ctx.arc(fx+dx, dotY, 6, 0, Math.PI*2); ctx.fill();
-  });
-  // URL pill
-  const urlW = Math.max(220, Math.min(fw*0.45, 280));
-  const urlX = fx + (fw - urlW)/2;
-  const urlY = fy + (CHROME_H - 22)/2;
-  drawRoundedRect(ctx, urlX, urlY, urlW, 22, 11);
-  ctx.fillStyle=bg.urlBg; ctx.fill();
-  // lock icon
-  ctx.save();
-  ctx.translate(urlX+12, urlY+11);
-  ctx.strokeStyle=bg.urlText; ctx.fillStyle=bg.urlText; ctx.lineWidth=1.2;
-  ctx.beginPath(); ctx.arc(0,-1.2,2.6,Math.PI,0); ctx.stroke();
-  ctx.fillRect(-3.2, 0.4, 6.4, 5);
-  ctx.restore();
-  // URL text
-  const url=`http://${location.hostname}:${location.port||"47821"}`;
-  ctx.fillStyle=bg.urlText;
-  ctx.font='11px ui-monospace, "SF Mono", Menlo, monospace';
-  ctx.textBaseline="middle";
-  ctx.fillText(url, urlX+26, urlY+11);
-  // chrome separator
-  ctx.strokeStyle=bg.chromeBorder; ctx.lineWidth=1;
-  ctx.beginPath(); ctx.moveTo(fx,fy+CHROME_H); ctx.lineTo(fx+fw,fy+CHROME_H); ctx.stroke();
-  // card content clipped to rounded bottom of frame
-  ctx.save();
-  drawRoundedRect(ctx, fx, fy+CHROME_H, fw, cardH, [0,0,RADIUS,RADIUS]);
-  ctx.clip();
-  ctx.drawImage(inner, fx, fy+CHROME_H, cardW, cardH);
-  ctx.restore();
-  // watermark (low-key)
-  ctx.save();
-  ctx.globalAlpha = bg.wmAlpha;
-  ctx.textAlign="center"; ctx.textBaseline="alphabetic";
-  ctx.fillStyle=bg.wmSub;
-  ctx.font='500 12px -apple-system, "SF Pro Display", Inter, system-ui, sans-serif';
-  const wmY = fy + fh + WM_GAP + 16;
-  ctx.fillText("Claude Usage Dashboard  ·  by ShaonPro", totalW/2, wmY);
-  ctx.font='400 10px -apple-system, "SF Pro", Inter, sans-serif';
-  const ds = new Date().toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"});
-  ctx.fillText(`github.com/ShaonPro  ·  ${ds}`, totalW/2, wmY+16);
-  ctx.restore();
-  return new Promise(res=>canvas.toBlob(b=>res(b),"image/png"));
-}
-function showCaptureToast(msg, kind){
-  document.querySelectorAll(".cap-toast").forEach(t=>t.remove());
-  const t=document.createElement("div");
-  t.className="cap-toast"+(kind?" "+kind:"");
-  t.innerHTML=(kind==="ok"?'<span class="glyph">✓</span>':kind==="err"?'<span class="glyph">!</span>':'<span class="glyph">✦</span>')+esc(msg);
-  document.body.appendChild(t);
-  requestAnimationFrame(()=>t.classList.add("show"));
-  setTimeout(()=>{ t.classList.remove("show"); setTimeout(()=>t.remove(),400); }, 2800);
-}
 function safeFilename(s){ return String(s||"card").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,40); }
 function tsForFile(){
   const d=new Date(), p=n=>String(n).padStart(2,"0");
   return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
 }
+
+// Copy every computed-style declaration from `originalEl` (and all of its
+// descendants) onto the matching nodes in `cloneEl`. SVG foreignObject
+// embeds the DOM as-is but does NOT inherit the document's stylesheets —
+// so the clone needs inline styles to render with the same look.
 function inlineComputedStyles(originalEl, cloneEl){
   const origAll=[originalEl, ...originalEl.querySelectorAll("*")];
   const cloneAll=[cloneEl,    ...cloneEl.querySelectorAll("*")];
@@ -3239,42 +2831,9 @@ function inlineComputedStyles(originalEl, cloneEl){
     }
     cloneAll[i].setAttribute("style",style);
   }
+  // strip elements that don't belong in a shared screenshot
   cloneEl.querySelectorAll(".card-share, #tip, .cap-toast, .pro-egg, .cap-pop").forEach(e=>e.remove());
-  cloneEl.querySelectorAll("a[href]").forEach(a=>{
-    a.removeAttribute("href"); a.removeAttribute("target"); a.removeAttribute("rel");
-  });
-  return cloneEl;
-}
-function showCaptureToast(msg, kind){
-  document.querySelectorAll(".cap-toast").forEach(t=>t.remove());
-  const t=document.createElement("div");
-  t.className="cap-toast"+(kind?" "+kind:"");
-  t.innerHTML=(kind==="ok"?'<span class="glyph">✓</span>':kind==="err"?'<span class="glyph">!</span>':'<span class="glyph">✦</span>')+esc(msg);
-  document.body.appendChild(t);
-  requestAnimationFrame(()=>t.classList.add("show"));
-  setTimeout(()=>{ t.classList.remove("show"); setTimeout(()=>t.remove(),400); }, 2600);
-}
-function safeFilename(s){ return String(s||"card").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-+|-+$/g,"").slice(0,40); }
-function tsForFile(){
-  const d=new Date(), p=n=>String(n).padStart(2,"0");
-  return `${d.getFullYear()}${p(d.getMonth()+1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`;
-}
-function inlineComputedStyles(originalEl, cloneEl){
-  const origAll=[originalEl, ...originalEl.querySelectorAll("*")];
-  const cloneAll=[cloneEl,    ...cloneEl.querySelectorAll("*")];
-  for(let i=0;i<origAll.length;i++){
-    const cs=window.getComputedStyle(origAll[i]);
-    let style="";
-    for(let j=0;j<cs.length;j++){
-      const prop=cs[j];
-      const val=cs.getPropertyValue(prop);
-      if(val) style+=`${prop}:${val};`;
-    }
-    cloneAll[i].setAttribute("style",style);
-  }
-  // strip elements that don't belong in a screenshot
-  cloneEl.querySelectorAll(".card-share, #tip, .cap-toast, .pro-egg").forEach(e=>e.remove());
-  // strip href/target on links — keeps the text but avoids tainting the canvas
+  // strip href/target on links — they're meaningless once frozen in an image
   cloneEl.querySelectorAll("a[href]").forEach(a=>{
     a.removeAttribute("href");
     a.removeAttribute("target");
@@ -3282,6 +2841,7 @@ function inlineComputedStyles(originalEl, cloneEl){
   });
   return cloneEl;
 }
+
 async function renderToSVG(el, opts={}){
   const rect=el.getBoundingClientRect();
   const w=Math.ceil(rect.width);
@@ -3375,47 +2935,18 @@ async function renderToSVG(el, opts={}){
 async function captureElement(el, opts={}){
   const shareBtn=el.querySelector(":scope > .card-share");
   if(shareBtn) shareBtn.classList.add("capturing");
-  const format = opts.format || "png";
-  showCaptureToast(`Capturing ${format.toUpperCase()}…`);
+  showCaptureToast("Capturing SVG…");
   try {
-    let blob, ext, mime;
-    if (format === "png") {
-      try {
-        blob = await renderCardToPNG(el, opts);
-        ext = "png"; mime = "image/png";
-      } catch (pngErr) {
-        // html2canvas couldn't load or render — fall back to SVG with a hint
-        console.warn("PNG capture failed, falling back to SVG:", pngErr);
-        blob = await renderToSVG(el, opts);
-        ext = "svg"; mime = "image/svg+xml";
-      }
-    } else {
-      blob = await renderToSVG(el, opts);
-      ext = "svg"; mime = "image/svg+xml";
-    }
+    const blob=await renderToSVG(el, opts);
     if(!blob) throw new Error("Empty image");
-    const bgPart = opts.bgId && opts.bgId !== "warm-dark" ? `-${opts.bgId}` : "";
-    const filename=`claude-usage-${safeFilename(opts.title)}${bgPart}-${tsForFile()}.${ext}`;
-    // download
+    const bgPart=opts.bgId && opts.bgId !== "warm-dark" ? `-${opts.bgId}` : "";
+    const filename=`claude-usage-${safeFilename(opts.title)}${bgPart}-${tsForFile()}.svg`;
     const a=document.createElement("a");
     a.href=URL.createObjectURL(blob);
     a.download=filename;
     a.click();
     setTimeout(()=>URL.revokeObjectURL(a.href), 2000);
-    // try clipboard (PNG only)
-    let copied=false;
-    if(ext==="png"){
-      try {
-        if(navigator.clipboard && window.ClipboardItem){
-          await navigator.clipboard.write([new ClipboardItem({[mime]:blob})]);
-          copied=true;
-        }
-      } catch(_) {}
-    }
-    const msg = ext==="png"
-      ? (copied?"PNG saved + copied to clipboard":"PNG saved — ready to share")
-      : "SVG saved — open in Preview to export as PNG";
-    showCaptureToast(msg,"ok");
+    showCaptureToast("SVG saved — open in Preview / Figma to export PNG", "ok");
   } catch(e) {
     console.error(e);
     showCaptureToast("Capture failed: "+e.message, "err");
@@ -3430,7 +2961,7 @@ function injectShareButtons(){
     if(card.querySelector(":scope > .card-share")) return;
     const btn=document.createElement("button");
     btn.className="card-share";
-    btn.title="Capture this card as a shareable PNG";
+    btn.title="Capture this card as a shareable SVG";
     btn.setAttribute("aria-label","Capture this card");
     btn.innerHTML=`<svg viewBox="0 0 24 24" fill="none">
       <path d="M3 9V7a2 2 0 012-2h2l1.5-2h7L17 5h2a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2v-2"

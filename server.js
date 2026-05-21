@@ -77,14 +77,6 @@ const server = http.createServer((req, res) => {
       });
     }
 
-    if (u.pathname === '/html2canvas.min.js') {
-      const file = path.join(__dirname, 'html2canvas.min.js');
-      if (!fs.existsSync(file)) return send(res, 404, 'text/plain', 'Not found');
-      return send(res, 200, 'application/javascript; charset=utf-8',
-        fs.readFileSync(file),
-        { 'Cache-Control': 'public, max-age=86400, immutable' });
-    }
-
     if (u.pathname === '/api/live') {
       // genuine real-time data — reads the latest JSONL tail bypassing usage.db
       const data = readLiveFromJSONL();

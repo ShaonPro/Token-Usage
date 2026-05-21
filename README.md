@@ -173,7 +173,6 @@ stats.js           Reads ~/.claude/usage.db + JSONL files, applies pricing,
                    aggregates, classifies session health
 dashboard.html     Single-page web UI — vanilla JS, custom SVG charts,
                    no CDN, no build step
-html2canvas.min.js Vendored (198 KB) — powers per-card PNG capture
 cli.js             ANSI-colored terminal dashboard
 claude-usage.*     One-click launcher per OS
 ```
@@ -189,11 +188,15 @@ The dashboard polls **two endpoints**:
 Per-session deep-dive uses `GET /api/session/:id` and parses just that
 session's turns.
 
-### Share any card as a PNG
+### Share any card as an SVG
 
-Hover any card → click the camera icon → pick a background → get a
-Mac-window-framed PNG, ready for X / LinkedIn / Slack. SVG export too,
-plus six pre-built gradient backgrounds.
+Hover any card → click the camera icon → pick one of six gradient
+backgrounds → get a Mac-window-framed SVG with a low-key watermark.
+Open the `.svg` in Preview / Photoshop / Figma to export to PNG at
+any resolution.
+
+SVG is chosen for lossless quality, modern-CSS fidelity (`color-mix`,
+`oklab`, `color(srgb …)` all render perfectly), and tiny file size.
 
 ---
 
@@ -221,7 +224,6 @@ fake projects, costs, and session health states, no real data exposed.
 | `stats.js`                   | SQLite + JSONL data layer, pricing, aggregation  |
 | `dashboard.html`             | Single-page web UI                               |
 | `cli.js`                     | Terminal dashboard                               |
-| `html2canvas.min.js`         | Vendored library for PNG capture (198 KB)        |
 | `claude-usage.command/.bat/.sh` | One-click launchers per OS                    |
 | `scripts/seed-demo.js`       | Generate `demo-usage.db` with believable dummy data |
 | `scripts/demo-server.js`     | Demo server (stubs `/api/live` with canned data) |
