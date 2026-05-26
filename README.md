@@ -54,8 +54,14 @@ your OS:
 
 ### Requirements
 
-- **Node.js 22.5+** &nbsp;—&nbsp; uses Node's built-in `node:sqlite`, **no `npm install` ever needed**.
-- **Claude Code** installed and used at least once, so `~/.claude/` exists.
+- **Node.js 22.7+ recommended** (22.5/22.6 also work — the launcher auto-adds
+  `--experimental-sqlite` if needed). Uses Node's built-in `node:sqlite` so
+  **`npm install` is never needed**.
+- **Claude Code** installed and used at least once so `~/.claude/` exists
+  (on Windows: `%USERPROFILE%\.claude\`).
+
+> **Windows note** — the `npx github:` form works in PowerShell, Command Prompt, and Git Bash.
+> If you prefer the launcher, double-click `claude-usage.bat` after cloning the repo.
 
 ---
 

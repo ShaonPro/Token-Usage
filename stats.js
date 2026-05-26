@@ -20,15 +20,47 @@ const SHAON_PRO = Object.freeze({
   sig: '✦',
 });
 
+// node:sqlite is built into Node, but the rollout history is awkward:
+//   Node 22.5  – 22.6   exists, needs --experimental-sqlite flag
+//   Node 22.7  – 22.x   stable, no flag
+//   Node 23                stable
+//   Node 24+               stable (recommended)
+// We try to load it; if that fails we self-relaunch with the flag once
+// (so the user doesn't have to know which Node version they have).
 let DatabaseSync;
 try {
   ({ DatabaseSync } = require('node:sqlite'));
 } catch (err) {
+  const nodeVer = process.versions.node;
+  const [maj, min] = nodeVer.split('.').map(Number);
+  const isFlagRequiredRange =
+    (maj === 22 && min >= 5 && min <= 6) ||
+    /experimental/i.test(String(err && err.message));
+  const alreadyRetried = process.env._CU_SQLITE_RETRY === '1';
+
+  if (isFlagRequiredRange && !alreadyRetried) {
+    // Self-relaunch with --experimental-sqlite so end users don't have to
+    // figure out which CLI flag their Node version needs.
+    const { spawnSync } = require('child_process');
+    const args = ['--experimental-sqlite', ...process.argv.slice(1)];
+    process.stderr.write(
+      `\n  Node ${nodeVer} needs --experimental-sqlite for node:sqlite. Relaunching…\n\n`
+    );
+    const r = spawnSync(process.execPath, args, {
+      stdio: 'inherit',
+      env: { ...process.env, _CU_SQLITE_RETRY: '1' },
+    });
+    process.exit(r.status == null ? 1 : r.status);
+  }
+
   console.error(
-    `\n  Failed to load node:sqlite on Node ${process.versions.node}.\n` +
-      `  The Claude Usage Dashboard needs the built-in node:sqlite module.\n` +
-      `  If you're on Node 22.x: rerun with  node --experimental-sqlite server.js\n` +
-      `  Or upgrade to Node 24 or newer:    https://nodejs.org\n`
+    `\n  Failed to load node:sqlite on Node ${nodeVer}.\n` +
+      `  The Claude Usage Dashboard needs the built-in node:sqlite module.\n\n` +
+      `  Easiest fix — upgrade Node to 22.7+ or 24+:\n` +
+      `      https://nodejs.org\n\n` +
+      `  Or rerun manually with the experimental flag:\n` +
+      `      node --experimental-sqlite ${process.argv[1] || 'server.js'}\n\n` +
+      `  Underlying error: ${err && err.message}\n`
   );
   process.exit(1);
 }
@@ -950,7 +982,11 @@ const PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
 
 function deriveProject(cwd) {
   if (!cwd) return '(unknown)';
-  const parts = cwd.split('/').filter(Boolean);
+  // JSONL transcripts may have either POSIX (`/Users/foo/code/proj`) or
+  // Windows (`C:\Users\foo\code\proj`) paths depending on the OS that
+  // recorded them. Split on either separator so the project label
+  // (last two segments, joined with `/`) works for both.
+  const parts = cwd.split(/[\\/]/).filter(Boolean);
   if (parts.length < 2) return parts[0] || '(unknown)';
   return parts.slice(-2).join('/');
 }
@@ -1035,10 +1071,14 @@ function findJsonlFiles() {
         if (e.isDirectory()) walk(p, depth + 1);
         else if (e.isFile() && p.endsWith('.jsonl')) {
           const st = fs.statSync(p);
+          // Subagent transcripts live under .../projects/<proj>/subagents/...
+          // Use platform-aware separators so Windows paths classify correctly.
+          const sep = path.sep;
+          const subagentMarker = `${sep}subagents${sep}`;
           out.push({
             path: p,
             mtime: st.mtimeMs,
-            kind: p.includes('/subagents/') ? 'subagent' : 'main',
+            kind: p.includes(subagentMarker) ? 'subagent' : 'main',
           });
         }
       } catch (_) {}
